@@ -1,0 +1,44 @@
+node{
+    properties([parameters([choice(choices: ['Qa', 'Pre-prod', 'master'], description: 'checkout branch', name: 'Environment name')])])
+    
+    def buildNumber = BUILD_NUMBER
+    def mavenHome= tool name:"maven2",type:"maven"
+    stage('checkout')
+    {
+        git credentialsId: '297c8dda-b95b-44dc-9389-e5bf57390fd7', url: 'https://github.com/Devops-0/web-app.git'
+    }
+    stage('clean package')
+    {
+      sh "${mavenHome}/bin/mvn clean package"  
+        
+    }
+     stage('code coverage')
+    {
+      sh "${mavenHome}/bin/mvn clean sonar:sonar"  
+        
+    }
+    stage('Artifactry')
+    {
+      sh "${mavenHome}/bin/mvn clean deploy"  
+        
+    }   
+    stage('Build Docker image')
+    {
+        sh "docker build -t santhukumarbathula/maven-web-application-docker:${buildNumber} ."
+    }
+     stage('login and push')
+    {
+    withCredentials([string(credentialsId: 'docker_hub_password', variable: 'dockerhubpassword')]) {
+    sh "docker login -u santhukumarbathula -p ${dockerhubpassword}"
+    }
+        sh "docker push santhukumarbathula/maven-web-application-docker:${buildNumber}"
+    }
+    stage('deploy to container')
+    {
+    sshagent(['docker_dev-ssh']) {
+    sh"ssh -o strictHostkeychecking=no ubuntu@172.31.47.10 docker rm -f mavenwebappcontainer || true"
+    
+    sh"ssh -o strictHostkeychecking=no ubuntu@172.31.47.10 docker run -d -p 7000:8080 --name mavenwebappcontainer santhukumarbathula/maven-web-application-docker:${buildNumber}" 
+}
+}
+}
